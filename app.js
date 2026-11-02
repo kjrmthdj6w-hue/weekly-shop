@@ -463,16 +463,25 @@ function populate() {
    WEEKLY RECIPES
    --------------------------------------------------------------------- */
 function rRecipes() {
-  const meals = state.meals.filter((m) => m.name.trim() || String(m.ingredients).trim());
-  $("v-recipes").innerHTML = bar("Weekly recipes") + (meals.length
-    ? `<p class="sub">This week's ${meals.length} meal${meals.length === 1 ? "" : "s"} and what each needs. Edit them in the Meal planner.</p>` +
-      meals.map((m) => {
+  const idx = state.meals.map((m, i) => i).filter((i) => state.meals[i].name.trim() || String(state.meals[i].ingredients).trim());
+  const used = idx.filter((i) => state.meals[i].used).length;
+  $("v-recipes").innerHTML = bar("Weekly recipes") + (idx.length
+    ? `<p class="sub">${idx.length} meal${idx.length === 1 ? "" : "s"} this week${used ? ` · ${used} used, ${idx.length - used} to go` : ""}. Tap <b>Mark as used</b> once you've cooked one.</p>` +
+      idx.map((i) => {
+        const m = state.meals[i];
         const ing = String(m.ingredients).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
         const where = [m.book && m.book.trim(), m.page && String(m.page).trim() ? "page " + String(m.page).trim() : ""].filter(Boolean).join(" · ");
-        return `<div class="card rcp"><h3>${esc(m.name.trim() || "Untitled meal")}</h3><div class="bk">${esc(where || "No recipe book noted")}</div>${ing.length ? `<ul>${ing.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : '<div class="hint">No ingredients listed.</div>'}</div>`;
+        return `<div class="card rcp ${m.used ? "used" : ""}"><h3>${m.used ? "✓ " : ""}${esc(m.name.trim() || "Untitled meal")}</h3><div class="bk">${esc(where || "No recipe book noted")}</div>${ing.length ? `<ul>${ing.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : '<div class="hint">No ingredients listed.</div>'}
+          <div class="row2" style="margin-top:10px"><button class="btn small ${m.used ? "ghost" : ""}" onclick="toggleUsed(${i})">${m.used ? "Undo – not used" : "Mark as used"}</button><button class="btn small danger" onclick="removeRecipe(${i})">Remove</button></div></div>`;
       }).join("")
     : `<div class="empty"><div class="big">📖</div><b>No meals planned yet</b><p>Add them in the Meal planner and they'll show up here.</p><button class="btn" onclick="go('planner')">Go to Meal planner</button></div>`) +
     `<div class="syncline"></div>`;
+}
+// Strike a meal off once cooked. Local to this week; doesn't change the shopping list.
+function toggleUsed(i) { state.meals[i].used = !state.meals[i].used; touch(); rRecipes(); }
+function removeRecipe(i) {
+  if (!confirm(`Remove "${state.meals[i].name.trim() || "this meal"}" from this week's plan? Its saved ingredients in Previous meals are kept.`)) return;
+  state.meals[i] = emptyMeal(); touch(); rRecipes();
 }
 
 /* ---------------------------------------------------------------------
