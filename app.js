@@ -63,8 +63,59 @@ function buildShopping(st) {
 /* ---------------------------------------------------------------------
    State
    --------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------
+   Previous meals (history) — pure functions
+   --------------------------------------------------------------------- */
+const mealKey = (n) => String(n || "").replace(/\s+/g, " ").trim().toLowerCase();
+// Ingredient text as saved in history: no "(have)" / "?" markers (those are one-week notes).
+const ingDisplay = (s) => String(s || "").replace(/\(have\)/gi, "").replace(/\?/g, "").replace(/\s+/g, " ").trim();
+
+// Week = Monday..Sunday; a meal counts once per week however many times you populate.
+function weekKey(d) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+}
+
+function findHistory(st, name) {
+  const k = mealKey(name); if (!k) return null;
+  return st.history.find((h) => mealKey(h.name) === k) || null;
+}
+
+// Save this week's meals into history: add new meals, ADD any new ingredients to existing
+// meals (never duplicate, never remove), bump "times chosen" once per week.
+function recordMeals(st, now = new Date()) {
+  const wk = weekKey(now), seen = new Set();
+  let meals = 0, newMeals = 0, added = 0;
+  for (const m of st.meals) {
+    const key = mealKey(m.name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key); meals++;
+    let h = findHistory(st, m.name);
+    if (!h) {
+      h = { id: "h" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: String(m.name).replace(/\s+/g, " ").trim(), book: "", page: "", ingredients: [], count: 0, lastUsed: null, lastCountedWeek: null };
+      st.history.push(h); newMeals++;
+    }
+    if (m.book && m.book.trim()) h.book = m.book.trim();
+    if (m.page && String(m.page).trim()) h.page = String(m.page).trim();
+    const have = new Set(h.ingredients.map(cleanItem));
+    String(m.ingredients || "").split(/\r?\n/).forEach((line) => {
+      const k = cleanItem(line);
+      if (k && !have.has(k)) { have.add(k); h.ingredients.push(ingDisplay(line)); added++; }
+    });
+    if (h.lastCountedWeek !== wk) { h.count++; h.lastCountedWeek = wk; }
+    h.lastUsed = now.toISOString();
+  }
+  return { meals, newMeals, added };
+}
+
+function top5(st) {
+  return st.history.filter((h) => h.count > 0).slice()
+    .sort((a, b) => b.count - a.count || String(b.lastUsed).localeCompare(String(a.lastUsed)) || a.name.localeCompare(b.name)).slice(0, 5);
+}
+
 let state;
-const ui = { screen: "home", openMeals: new Set([0]), editMisc: false, shopBanner: "", kwFilter: "", kwOpen: false, settingsMsg: null };
+const ui = { screen: "home", openMeals: new Set([0]), editMisc: false, shopBanner: "", kwFilter: "", kwOpen: false, settingsMsg: null, openHist: new Set(), histFilter: "", auto: {}, autoNote: {} };
 
 function emptyMeal() { return { name: "", book: "", page: "", ingredients: "" }; }
 
@@ -78,6 +129,10 @@ function normalise() {
   state.aisles = state.aisles || [];
   state.keywords = state.keywords || [];
   state.misc = state.misc || [];
+  state.history = Array.isArray(state.history) ? state.history.map((h) => ({
+    id: h.id || "h" + Math.random().toString(36).slice(2, 9), name: h.name || "", book: h.book || "", page: h.page || "",
+    ingredients: Array.isArray(h.ingredients) ? h.ingredients : [], count: h.count || 0, lastUsed: h.lastUsed || null, lastCountedWeek: h.lastCountedWeek || null
+  })) : [];
   state.meals = (state.meals || []).map((m) => ({ ...emptyMeal(), ...m }));
   while (state.meals.length < MAX_MEALS) state.meals.push(emptyMeal());
   if (state.shopping && !Array.isArray(state.shopping.items)) state.shopping = null;
@@ -231,7 +286,7 @@ async function loadSaved() {
 /* ---------------------------------------------------------------------
    Navigation
    --------------------------------------------------------------------- */
-const SCREENS = ["home", "shopping", "planner", "aisles", "recipes", "settings"];
+const SCREENS = ["home", "shopping", "planner", "aisles", "recipes", "history", "settings"];
 function go(name) {
   ui.screen = name;
   SCREENS.forEach((s) => $("s-" + s).classList.toggle("active", s === name));
@@ -239,7 +294,7 @@ function go(name) {
   window.scrollTo(0, 0);
 }
 function render() {
-  ({ home: rHome, shopping: rShopping, planner: rPlanner, aisles: rAisles, recipes: rRecipes, settings: rSettings })[ui.screen]();
+  ({ home: rHome, shopping: rShopping, planner: rPlanner, aisles: rAisles, recipes: rRecipes, history: rHistory, settings: rSettings })[ui.screen]();
   renderSyncLines();
 }
 const bar = (title) => `<div class="bar"><button class="back" onclick="go('home')">‹ Home</button><h1>${esc(title)}</h1></div>`;
@@ -260,6 +315,7 @@ function rHome() {
       <button class="tile" onclick="go('planner')"><span class="ic">🍽️</span><span><div class="tt">Meal planner</div><div class="ts">${planned} of ${MAX_MEALS} meals planned</div></span></button>
       <button class="tile" onclick="go('aisles')"><span class="ic">🧭</span><span><div class="tt">Aisle planner</div><div class="ts">${state.aisles.length} aisles · ${state.keywords.length} keywords</div></span></button>
       <button class="tile" onclick="go('recipes')"><span class="ic">📖</span><span><div class="tt">Weekly recipes</div><div class="ts">${planned} recipe${planned === 1 ? "" : "s"} this week</div></span></button>
+      <button class="tile wide" onclick="go('history')"><span class="ic">🕘</span><span><div class="tt">Previous meals</div><div class="ts">${state.history.length ? `${state.history.length} meal${state.history.length === 1 ? "" : "s"} remembered · top: ${esc(top5(state)[0] ? top5(state)[0].name : "–")}` : "Builds up as you plan"}</div></span></button>
     </div>
     <div class="syncline"></div>`;
 }
@@ -346,11 +402,12 @@ function rPlanner() {
       <button class="mhead" onclick="toggleMeal(${i})"><span class="mnum">${i + 1}</span>
         <span class="mtxt"><span class="mt" id="mt-${i}">${esc(m.name.trim() || "Meal " + (i + 1))}</span><span class="ms" id="ms-${i}">${esc(mealSummary(m))}</span></span><span class="chev">›</span></button>
       <div class="mbody">
-        <label class="l">Meal name</label><input type="text" value="${esc(m.name)}" oninput="editMeal(${i},'name',this.value)" placeholder="e.g. Greek salad">
-        <div class="row2"><div><label class="l">Recipe book</label><input type="text" list="books" value="${esc(m.book)}" oninput="editMeal(${i},'book',this.value)" placeholder="e.g. Fast food"></div>
-        <div class="narrow"><label class="l">Page</label><input type="text" inputmode="numeric" value="${esc(m.page)}" oninput="editMeal(${i},'page',this.value)" placeholder="18"></div></div>
+        <label class="l">Meal name</label><input type="text" id="mn-${i}" value="${esc(m.name)}" autocomplete="off" oninput="onNameInput(${i},this.value)" onchange="onNameCommit(${i})" onfocus="renderSugs(${i})" placeholder="e.g. Greek salad">
+        <div class="sugs" id="sug-${i}"></div><div class="hint" id="auto-${i}">${ui.autoNote[i] ? AUTO_NOTE : ""}</div>
+        <div class="row2"><div><label class="l">Recipe book</label><input type="text" id="mb-${i}" list="books" value="${esc(m.book)}" oninput="editMeal(${i},'book',this.value)" placeholder="e.g. Fast food"></div>
+        <div class="narrow"><label class="l">Page</label><input type="text" id="mp-${i}" inputmode="numeric" value="${esc(m.page)}" oninput="editMeal(${i},'page',this.value)" placeholder="18"></div></div>
         <label class="l">Ingredients — one per line</label>
-        <textarea oninput="editMeal(${i},'ingredients',this.value)" placeholder="cherry tomatoes&#10;cucumber&#10;feta">${esc(m.ingredients)}</textarea>
+        <textarea id="mi-${i}" oninput="editMeal(${i},'ingredients',this.value)" placeholder="cherry tomatoes&#10;cucumber&#10;feta">${esc(m.ingredients)}</textarea>
         <button class="link" onclick="clearMeal(${i})">Clear this meal</button>
       </div></div>`).join("");
   const misc = state.misc.map((x, i) => `<button class="chip ${x.selected ? "on" : ""}" onclick="${ui.editMisc ? `delMisc(${i})` : `toggleMisc(${i})`}">${esc(x.name)}${ui.editMisc ? '<span class="x">✕</span>' : ""}</button>`).join("");
@@ -365,6 +422,7 @@ function rPlanner() {
      <div class="stack"><button class="btn ghost" onclick="newWeek()">Start a new week (clear meals &amp; ticks)</button></div>
      <div class="sticky"><button class="btn" onclick="populate()">Complete – populate shopping list</button></div>
      <div class="syncline"></div>`;
+  state.meals.forEach((_, i) => renderSugs(i));
 }
 
 function toggleMeal(i) { ui.openMeals.has(i) ? ui.openMeals.delete(i) : ui.openMeals.add(i); const m = $("meal-" + i); if (m) m.classList.toggle("open", ui.openMeals.has(i)); }
@@ -386,17 +444,18 @@ function newWeek() {
   if (!confirm("Clear all meals and un-highlight the extras? Your aisles and extras list stay.")) return;
   state.meals = Array.from({ length: MAX_MEALS }, emptyMeal);
   state.misc.forEach((x) => (x.selected = false));
-  ui.openMeals = new Set([0]); touch(); rPlanner(); toast("Fresh week ready ✓");
+  ui.openMeals = new Set([0]); ui.auto = {}; ui.autoNote = {}; touch(); rPlanner(); toast("Fresh week ready ✓");
 }
 
 function populate() {
   const items = buildShopping(state);
   if (!items.length) { alert("No ingredients found! Add some meals or tick some extras first."); return; }
   state.shopping = { generatedAt: new Date().toISOString(), items };
+  const rec = recordMeals(state);       // remember these meals + ingredients for next time
   touch();
   if (ghCfg() && getSettings().github.auto) { clearTimeout(backupTimer); backupNow({ quiet: true }); }
   const unk = items.filter((i) => !i.aisle).length;
-  ui.shopBanner = `✅ Shopping list populated — ${items.length} unique items sorted by aisle.${unk ? ` ${unk} need an aisle.` : ""}`;
+  ui.shopBanner = `✅ Shopping list populated — ${items.length} unique items sorted by aisle.${unk ? ` ${unk} need an aisle.` : ""}${rec.meals ? ` ${rec.meals} meal${rec.meals === 1 ? "" : "s"} saved to Previous meals${rec.added ? ` (+${rec.added} new ingredient${rec.added === 1 ? "" : "s"})` : ""}.` : ""}`;
   go("shopping");
 }
 
@@ -522,7 +581,7 @@ function rSettings() {
       <p class="hint" id="set-hint" style="display:none">Tap the text, choose Select All → Copy, then paste into Notes.</p>
       <label class="l">Restore from saved text</label><textarea id="set-in" style="min-height:80px;font-size:12px" placeholder="Paste your saved settings text here"></textarea>
       <button class="btn ghost" style="margin-top:10px" onclick="restoreSettingsText()">Restore settings</button><div id="set-msg" class="hint" style="margin-top:8px"></div></div>
-     <div class="card"><h3>Start again</h3><p class="hint" style="margin:0 0 10px">Replaces everything on this phone with the original spreadsheet data (aisles, keywords, extras and meals).</p>
+     <div class="card"><h3>Start again</h3><p class="hint" style="margin:0 0 10px">Replaces the aisles, keywords, extras and meals with the original spreadsheet data. Your Previous meals history is kept.</p>
       <button class="btn danger" onclick="resetAll()">Reset to spreadsheet defaults</button></div>`;
 }
 function readGh() { return { token: $("gh-token").value.trim(), owner: $("gh-owner").value.trim(), repo: $("gh-repo").value.trim(), path: $("gh-path").value.trim() || "meal-data.json", auto: $("gh-auto").checked }; }
@@ -544,8 +603,133 @@ function restoreSettingsText() {
   catch (e) { m.className = "err"; m.textContent = "That doesn't look right — paste the whole text."; }
 }
 function resetAll() {
-  if (!confirm("Reset EVERYTHING on this phone to the original spreadsheet data? Meals, extras, aisles and keywords will be replaced.")) return;
-  state = freshState(); normalise(); touch(); ui.settingsMsg = "Reset to spreadsheet defaults."; go("settings");
+  if (!confirm("Reset EVERYTHING on this phone to the original spreadsheet data? Meals, extras, aisles and keywords will be replaced. Your Previous meals history is kept.")) return;
+  const keep = state.history; state = freshState(); normalise(); state.history = keep; touch(); ui.settingsMsg = "Reset to spreadsheet defaults (your Previous meals were kept)."; go("settings");
+}
+
+/* ---------------------------------------------------------------------
+   PLANNER: recognise previous meals and fill in their ingredients
+   --------------------------------------------------------------------- */
+const AUTO_NOTE = "Filled in from Previous meals — delete anything you don't need this week.";
+
+// Safe to overwrite the ingredients box if it's empty, or still exactly what we filled in earlier.
+function canFillIngredients(i) {
+  const m = state.meals[i], cur = String(m.ingredients || "").trim();
+  if (!cur) return true;
+  const a = ui.auto[i];
+  return !!(a && m.ingredients === a.text);
+}
+
+// Update the meal's on-screen fields in place (no full redraw, so the keyboard/focus isn't disturbed).
+function refreshMealFields(i) {
+  const m = state.meals[i], set = (id, v) => { const el = $(id); if (el) el.value = v; };
+  set("mn-" + i, m.name); set("mb-" + i, m.book); set("mp-" + i, m.page); set("mi-" + i, m.ingredients);
+  const t = $("mt-" + i), s = $("ms-" + i), c = $("meal-" + i), a = $("auto-" + i);
+  if (t) t.textContent = m.name.trim() || "Meal " + (i + 1);
+  if (s) s.textContent = mealSummary(m);
+  if (c) c.classList.toggle("filled", !!m.name.trim());
+  if (a) a.textContent = ui.autoNote[i] ? AUTO_NOTE : "";
+  renderSugs(i);
+}
+
+function fillFromHistory(i, h, { override = false } = {}) {
+  const m = state.meals[i];
+  if (override) { m.name = h.name; if (h.book) m.book = h.book; if (h.page) m.page = h.page; }
+  else { if (!m.book.trim() && h.book) m.book = h.book; if (!String(m.page).trim() && h.page) m.page = h.page; }
+  m.ingredients = h.ingredients.join("\n");
+  ui.auto[i] = { key: mealKey(h.name), text: m.ingredients };
+  ui.autoNote[i] = h.ingredients.length > 0;
+  touch(); refreshMealFields(i);
+}
+
+function onNameInput(i, val) { editMeal(i, "name", val); renderSugs(i); }
+
+// When you finish typing a name that matches a previous meal, fill in its saved ingredients.
+function onNameCommit(i) {
+  const m = state.meals[i], h = findHistory(state, m.name);
+  if (!h || !h.ingredients.length) return;
+  if (canFillIngredients(i) && m.ingredients !== h.ingredients.join("\n")) fillFromHistory(i, h);
+}
+
+function pickHistory(i, id) {
+  const h = state.history.find((x) => x.id === id); if (!h) return;
+  if (!canFillIngredients(i) && !confirm("Replace the ingredients already in this meal with the saved ones?")) return;
+  fillFromHistory(i, h, { override: true });
+}
+
+function renderSugs(i) {
+  const box = $("sug-" + i); if (!box) return;
+  if (!state.history.length) { box.innerHTML = ""; return; }
+  const m = state.meals[i], q = mealKey(m.name), exact = findHistory(state, m.name);
+  let list;
+  if (!q) list = top5(state);
+  else list = state.history.filter((h) => mealKey(h.name).includes(q) && h !== exact).sort((a, b) => b.count - a.count).slice(0, 5);
+  let html = "";
+  if (exact && exact.ingredients.length && m.ingredients !== exact.ingredients.join("\n"))
+    html += `<button class="sug" onclick="pickHistory(${i},'${exact.id}')">↻ Load saved ingredients</button>`;
+  if (!q && list.length) html += `<span class="hint" style="width:100%;margin:0">From previous meals:</span>`;
+  html += list.map((h) => `<button class="sug" onclick="pickHistory(${i},'${h.id}')">${esc(h.name)} <small>×${h.count}</small></button>`).join("");
+  box.innerHTML = html;
+}
+
+/* ---------------------------------------------------------------------
+   PREVIOUS MEALS
+   --------------------------------------------------------------------- */
+const whereText = (h) => [h.book, h.page ? "p. " + h.page : ""].filter(Boolean).join(" · ") || "No book noted";
+
+function rHistory() {
+  const h = state.history;
+  $("v-history").innerHTML = bar("Previous meals") + (h.length
+    ? `<p class="sub">Every meal you've planned, with all the ingredients you've used for it. It grows each time you populate the shopping list.</p>
+       <div class="card"><h3>🏆 Top 5 recipes</h3>${top5(state).map((x, i) => `<div class="toprow"><span class="rk">${i + 1}</span><span class="tn"><b>${esc(x.name)}</b><small>${esc(whereText(x))}</small></span><span class="cnt">×${x.count}</span></div>`).join("")}</div>
+       <div class="secthead"><h2>All meals (${h.length})</h2></div>
+       <input type="text" id="hist-filter" placeholder="Search meals or ingredients…" value="${esc(ui.histFilter)}" oninput="ui.histFilter=this.value;renderHistList()" autocomplete="off">
+       <div id="hist-list" style="margin-top:12px"></div>`
+    : `<div class="empty"><div class="big">🕘</div><b>Nothing here yet</b><p>Meals are saved automatically each time you tap <b>Complete – populate shopping list</b>, and their ingredients build up over time.</p><button class="btn" onclick="go('planner')">Go to Meal planner</button></div>`) +
+    `<div class="syncline"></div>`;
+  renderHistList();
+}
+
+function renderHistList() {
+  const box = $("hist-list"); if (!box) return;
+  const f = mealKey(ui.histFilter);
+  const rows = state.history.filter((h) => !f || mealKey(h.name).includes(f) || h.ingredients.some((g) => g.toLowerCase().includes(f)) || (h.book || "").toLowerCase().includes(f))
+    .sort((a, b) => String(b.lastUsed).localeCompare(String(a.lastUsed)) || a.name.localeCompare(b.name));
+  box.innerHTML = rows.length ? rows.map((h) => `
+    <div class="meal filled ${ui.openHist.has(h.id) ? "open" : ""}" id="hm-${h.id}">
+      <button class="mhead" onclick="toggleHist('${h.id}')"><span class="mnum">${h.count}</span>
+        <span class="mtxt"><span class="mt">${esc(h.name)}</span><span class="ms">${esc(whereText(h))} · ${h.ingredients.length} ingredient${h.ingredients.length === 1 ? "" : "s"}</span></span><span class="chev">›</span></button>
+      <div class="mbody">
+        <p class="hint" style="margin:0 0 4px">Chosen ${h.count} time${h.count === 1 ? "" : "s"}${h.lastUsed ? " · last " + new Date(h.lastUsed).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }) : ""}</p>
+        <div class="row2"><div><label class="l">Recipe book</label><input type="text" value="${esc(h.book)}" onchange="histField('${h.id}','book',this.value)"></div>
+        <div class="narrow"><label class="l">Page</label><input type="text" inputmode="numeric" value="${esc(h.page)}" onchange="histField('${h.id}','page',this.value)"></div></div>
+        <label class="l">Saved ingredients — tap one to remove it</label>
+        <div class="chips">${h.ingredients.length ? h.ingredients.map((g, gi) => `<button class="chip" onclick="histDelIng('${h.id}',${gi})">${esc(g)} <span class="x">✕</span></button>`).join("") : '<span class="hint">None yet.</span>'}</div>
+        <div class="row2" style="margin-top:10px"><input type="text" id="hi-${h.id}" placeholder="Add an ingredient…" autocomplete="off" onkeydown="if(event.key==='Enter')histAddIng('${h.id}')"><button class="btn small ghost" style="flex:0 0 auto" onclick="histAddIng('${h.id}')">Add</button></div>
+        <div class="stack" style="margin-top:12px"><button class="btn" onclick="useMeal('${h.id}')">Add to this week's plan</button><button class="btn danger" onclick="histDelete('${h.id}')">Delete this meal</button></div>
+      </div></div>`).join("") : '<p class="hint">No meals match.</p>';
+}
+
+function toggleHist(id) { ui.openHist.has(id) ? ui.openHist.delete(id) : ui.openHist.add(id); const el = $("hm-" + id); if (el) el.classList.toggle("open", ui.openHist.has(id)); }
+function histField(id, field, val) { const h = state.history.find((x) => x.id === id); if (!h) return; h[field] = val.trim(); touch(); renderHistList(); }
+function histDelIng(id, gi) { const h = state.history.find((x) => x.id === id); if (!h) return; h.ingredients.splice(gi, 1); touch(); renderHistList(); }
+function histAddIng(id) {
+  const h = state.history.find((x) => x.id === id), inp = $("hi-" + id); if (!h || !inp) return;
+  const k = cleanItem(inp.value); if (!k) return;
+  if (h.ingredients.some((g) => cleanItem(g) === k)) { toast("Already saved for this meal"); return; }
+  h.ingredients.push(ingDisplay(inp.value)); touch(); renderHistList(); toast("Ingredient added");
+}
+function histDelete(id) {
+  const h = state.history.find((x) => x.id === id); if (!h || !confirm(`Delete "${h.name}" from Previous meals? Its saved ingredients and count will be lost.`)) return;
+  state.history = state.history.filter((x) => x.id !== id); touch(); rHistory();
+}
+// Drop a previous meal into the first empty slot of this week's plan, with its saved ingredients.
+function useMeal(id) {
+  const h = state.history.find((x) => x.id === id); if (!h) return;
+  if (state.meals.some((m) => mealKey(m.name) === mealKey(h.name))) return alert(`"${h.name}" is already in this week's plan.`);
+  const i = state.meals.findIndex((m) => !m.name.trim() && !String(m.ingredients || "").trim());
+  if (i < 0) return alert(`All ${MAX_MEALS} meal slots are full — clear one in the Meal planner first.`);
+  ui.openMeals = new Set([i]); fillFromHistory(i, h, { override: true }); go("planner"); toast(`Added to meal ${i + 1}`);
 }
 
 /* ---------------------------------------------------------------------

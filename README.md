@@ -4,7 +4,7 @@ A phone-friendly web app built from your `Food_Improved_v4.xlsm` spreadsheet and
 `RefreshShoppingList` macro. It's plain HTML/JavaScript, so it hosts free on GitHub Pages
 and installs on your iPhone Home Screen. No Apple developer account, nothing expires.
 
-## The four pages
+## The five pages
 
 | Page | What it does |
 |---|---|
@@ -12,8 +12,15 @@ and installs on your iPhone Home Screen. No Apple developer account, nothing exp
 | **Meal planner** | Up to 8 meals a week, each with name, recipe book, page and ingredients (one per line). Below them, your **Extras & household** list (the old Misc column): tap an item to highlight it yellow = "needed this week". **Complete – populate shopping list** at the bottom does what the macro did. |
 | **Aisle planner** | Reorder, rename, add and delete aisles (▲▼✎✕). Add keywords manually, fix unknown ingredients from the current list, search/edit all keywords. |
 | **Weekly recipes** | Read-only view of this week's meals: book, page and ingredients. |
+| **Previous meals** | Every meal you've planned is saved here automatically when you tap *Complete – populate shopping list*: name, recipe book, page and ingredients. Ingredients **accumulate and never duplicate** (Carrot one week, Rice the next → Carrot, Rice). Each meal counts once per week, and a **Top 5 recipes** list shows your most-chosen. Open a meal to edit its book/page, remove or add ingredients, add it to this week's plan, or delete it. |
 
 Also: **Settings** (⚙︎ top right) for GitHub backup, and **Start a new week** on the Meal planner clears the meals and un-highlights the extras (your aisles and extras list stay).
+
+## How Previous meals feeds the planner
+
+- Type a meal name in the Meal planner and, when you finish typing, a matching previous meal's saved ingredients (and book/page if blank) fill in automatically. Delete what you don't need this week, then populate. Removing ingredients in the planner does **not** remove them from Previous meals; use the Previous meals page for that.
+- While typing, tappable suggestions appear (top 5 when the name is empty). **↻ Load saved ingredients** re-fills a meal. The app never overwrites ingredients you've typed yourself without asking.
+- Names match ignoring capitals and extra spaces. Existing backups stay compatible.
 
 ## How it matches the macro
 
