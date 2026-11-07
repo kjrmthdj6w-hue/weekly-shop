@@ -11,7 +11,7 @@ and installs on your iPhone Home Screen. No Apple developer account, nothing exp
 | **Shopping list** | The aisle-sorted list the macro used to write into columns H–J. Tick items off as you shop. Duplicates show as ×2, ×3. Items it can't place are highlighted yellow with a dropdown to choose an aisle (remembered for next time). **Share list** sends it to a message/Notes. |
 | **Meal planner** | Up to 8 meals a week, each with name, recipe book, page and ingredients (one per line). Below them, your **Extras & household** list (the old Misc column): tap an item to highlight it yellow = "needed this week". **Complete – populate shopping list** at the bottom does what the macro did. |
 | **Aisle planner** | Reorder, rename, add and delete aisles (▲▼✎✕). Add keywords manually, fix unknown ingredients from the current list, search/edit all keywords. |
-| **Weekly recipes** | This week's meals with book, page and ingredients. **Mark as used** strikes a meal through once you've cooked it (tap again to undo); **Remove** takes it out of the week's plan. Neither changes the shopping list. |
+| **Weekly recipes** | This week's meals with book, page and ingredients. **Mark as used** strikes the meal through, moves it to a "Used this week" section at the bottom, **clears it from the Meal planner**, and backs up straight away. **Undo** puts it back in the first free planner slot; **Remove** deletes it. None of this changes the shopping list or Previous meals. |
 | **Previous meals** | Every meal you've planned is saved here automatically when you tap *Complete – populate shopping list*: name, recipe book, page and ingredients. Ingredients **accumulate and never duplicate** (Carrot one week, Rice the next → Carrot, Rice). Each meal counts once per week, and a **Top 5 recipes** list shows your most-chosen. Open a meal to edit its book/page, remove or add ingredients, add it to this week's plan, or delete it. |
 
 Also: **Settings** (⚙︎ top right) for GitHub backup, and **Start a new week** on the Meal planner clears the meals and un-highlights the extras (your aisles and extras list stay).
@@ -21,6 +21,10 @@ Also: **Settings** (⚙︎ top right) for GitHub backup, and **Start a new week*
 - Type a meal name in the Meal planner and, when you finish typing, a matching previous meal's saved ingredients (and book/page if blank) fill in automatically. Delete what you don't need this week, then populate. Removing ingredients in the planner does **not** remove them from Previous meals; use the Previous meals page for that.
 - While typing, tappable suggestions appear (top 5 when the name is empty). **↻ Load saved ingredients** re-fills a meal. The app never overwrites ingredients you've typed yourself without asking.
 - Names match ignoring capitals and extra spaces. Existing backups stay compatible.
+
+## Re-using last week's meals
+
+Each meal in the Meal planner has a **Meal to be re-used this week** switch. Turn it on for a meal you bought for but didn't cook last week: it stays in the planner with its ingredients, but those ingredients are **left off the shopping list** so you don't buy them twice. It also isn't counted again in Previous meals. When you tap **Start a new week**, the app offers to keep your uncooked meals and marks them as re-used automatically.
 
 ## Using several devices
 

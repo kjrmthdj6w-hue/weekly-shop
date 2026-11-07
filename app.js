@@ -39,7 +39,7 @@ function aisleRank(aisle, st) {
 
 function collectIngredients(st) {
   const out = [];
-  st.meals.forEach((m) => String(m.ingredients || "").split(/\r?\n/).forEach((l) => out.push(l)));
+  st.meals.filter((m) => !m.reuse).forEach((m) => String(m.ingredients || "").split(/\r?\n/).forEach((l) => out.push(l)));
   st.misc.filter((x) => x.selected).forEach((x) => out.push(x.name));   // misc only if "yellow"
   return out;
 }
@@ -88,6 +88,7 @@ function recordMeals(st, now = new Date()) {
   const wk = weekKey(now), seen = new Set();
   let meals = 0, newMeals = 0, added = 0;
   for (const m of st.meals) {
+    if (m.reuse) continue;                 // carried over from last week: already recorded then
     const key = mealKey(m.name);
     if (!key || seen.has(key)) continue;
     seen.add(key); meals++;
@@ -117,7 +118,7 @@ function top5(st) {
 let state;
 const ui = { screen: "home", openMeals: new Set([0]), editMisc: false, shopBanner: "", kwFilter: "", kwOpen: false, settingsMsg: null, openHist: new Set(), histFilter: "", auto: {}, autoNote: {} };
 
-function emptyMeal() { return { name: "", book: "", page: "", ingredients: "" }; }
+function emptyMeal() { return { name: "", book: "", page: "", ingredients: "", reuse: false }; }
 
 function freshState() {
   const s = JSON.parse(JSON.stringify(SEED));
@@ -126,6 +127,7 @@ function freshState() {
 }
 
 function normalise() {
+  state.usedMeals = Array.isArray(state.usedMeals) ? state.usedMeals : [];
   state.aisles = state.aisles || [];
   state.keywords = state.keywords || [];
   state.misc = state.misc || [];
@@ -135,6 +137,10 @@ function normalise() {
   })) : [];
   state.meals = (state.meals || []).map((m) => ({ ...emptyMeal(), ...m }));
   while (state.meals.length < MAX_MEALS) state.meals.push(emptyMeal());
+  state.meals = state.meals.map((m) => {       // older data: a meal flagged "used" moves out of the planner
+    if (m.used) { state.usedMeals.push({ name: m.name, book: m.book, page: m.page, ingredients: m.ingredients }); return emptyMeal(); }
+    const { used, ...rest } = m; return rest;
+  });
   if (state.shopping && !Array.isArray(state.shopping.items)) state.shopping = null;
 }
 
@@ -413,13 +419,13 @@ function shareList() {
 function mealSummary(m) {
   const n = String(m.ingredients || "").split(/\r?\n/).filter((l) => l.trim()).length;
   const bits = [m.book && m.book.trim(), m.page && m.page.toString().trim() ? "p. " + m.page.toString().trim() : ""].filter(Boolean).join(", ");
-  return [bits, n ? `${n} ingredient${n === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ") || "Tap to add";
+  return [m.reuse ? "♻ Re-used" : "", bits, n ? `${n} ingredient${n === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ") || "Tap to add";
 }
 
 function rPlanner() {
   const books = [...new Set(state.meals.map((m) => (m.book || "").trim()).filter(Boolean))];
   const meals = state.meals.slice(0, Math.max(MAX_MEALS, state.meals.length)).map((m, i) => `
-    <div class="meal ${m.name.trim() ? "filled" : ""} ${ui.openMeals.has(i) ? "open" : ""}" id="meal-${i}">
+    <div class="meal ${m.name.trim() ? "filled" : ""} ${m.reuse ? "reuse" : ""} ${ui.openMeals.has(i) ? "open" : ""}" id="meal-${i}">
       <button class="mhead" onclick="toggleMeal(${i})"><span class="mnum">${i + 1}</span>
         <span class="mtxt"><span class="mt" id="mt-${i}">${esc(m.name.trim() || "Meal " + (i + 1))}</span><span class="ms" id="ms-${i}">${esc(mealSummary(m))}</span></span><span class="chev">›</span></button>
       <div class="mbody">
@@ -427,6 +433,7 @@ function rPlanner() {
         <div class="sugs" id="sug-${i}"></div><div class="hint" id="auto-${i}">${ui.autoNote[i] ? AUTO_NOTE : ""}</div>
         <div class="row2"><div><label class="l">Recipe book</label><input type="text" id="mb-${i}" list="books" value="${esc(m.book)}" oninput="editMeal(${i},'book',this.value)" placeholder="e.g. Fast food"></div>
         <div class="narrow"><label class="l">Page</label><input type="text" id="mp-${i}" inputmode="numeric" value="${esc(m.page)}" oninput="editMeal(${i},'page',this.value)" placeholder="18"></div></div>
+        <label class="switch reusebox"><span><b>Meal to be re-used this week</b><small>Not cooked last week — ingredients are already bought, so they're left off the shopping list.</small></span><input type="checkbox" id="mr-${i}" ${m.reuse ? "checked" : ""} onchange="setReuse(${i},this.checked)"></label>
         <label class="l">Ingredients <span class="hintinline" id="icn-${i}"></span></label>
         <div class="chips ingchips" id="ic-${i}"></div>
         <textarea id="mi-${i}" oninput="editMeal(${i},'ingredients',this.value)" placeholder="Add ingredients here, one per line">${esc(m.ingredients)}</textarea>
@@ -464,6 +471,11 @@ function renderIngChips(i) {
   box.innerHTML = list.map((g, gi) => `<button class="chip" onclick="removeIng(${i},${gi})">${esc(g)} <span class="x">✕</span></button>`).join("");
   if (n) n.textContent = list.length ? "— tap ✕ to remove one" : "— one per line";
 }
+function setReuse(i, on) {
+  state.meals[i].reuse = !!on; touch();
+  const s = $("ms-" + i); if (s) s.textContent = mealSummary(state.meals[i]);
+  const c = $("meal-" + i); if (c) c.classList.toggle("reuse", !!on);
+}
 function removeIng(i, gi) {
   const list = ingLines(state.meals[i].ingredients); list.splice(gi, 1);
   const v = list.join("\n"), ta = $("mi-" + i); if (ta) ta.value = v;
@@ -478,7 +490,10 @@ function addMisc() {
 }
 function newWeek() {
   if (!confirm("Clear all meals and un-highlight the extras? Your aisles and extras list stay.")) return;
-  state.meals = Array.from({ length: MAX_MEALS }, emptyMeal);
+  const left = state.meals.filter((m) => m.name.trim() || String(m.ingredients || "").trim());
+  const keep = left.length && confirm(`You have ${left.length} meal${left.length === 1 ? "" : "s"} you haven't cooked yet.\n\nOK = keep ${left.length === 1 ? "it" : "them"} in the new week as "re-used" (ingredients left off the shopping list).\nCancel = clear ${left.length === 1 ? "it" : "them"} too.`);
+  state.meals = Array.from({ length: MAX_MEALS }, emptyMeal); state.usedMeals = [];
+  if (keep) left.forEach((m, k) => { state.meals[k] = { ...m, reuse: true }; });
   state.misc.forEach((x) => (x.selected = false));
   ui.openMeals = new Set([0]); ui.auto = {}; ui.autoNote = {}; touch(); rPlanner(); toast("Fresh week ready ✓");
 }
@@ -498,24 +513,40 @@ function populate() {
 /* ---------------------------------------------------------------------
    WEEKLY RECIPES
    --------------------------------------------------------------------- */
+function recipeCard(m, kind, i) {
+  const ing = String(m.ingredients).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const where = [m.book && m.book.trim(), m.page && String(m.page).trim() ? "page " + String(m.page).trim() : ""].filter(Boolean).join(" · ");
+  const used = kind === "used";
+  return `<div class="card rcp ${used ? "used" : ""}"><h3>${used ? "✓ " : ""}${esc(m.name.trim() || "Untitled meal")}${m.reuse && !used ? ' <span class="tag">♻ re-used</span>' : ""}</h3><div class="bk">${esc(where || "No recipe book noted")}</div>${ing.length ? `<ul>${ing.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : '<div class="hint">No ingredients listed.</div>'}
+    <div class="row2" style="margin-top:10px"><button class="btn small ${used ? "ghost" : ""}" onclick="${used ? "unuseMeal" : "toggleUsed"}(${i})">${used ? "Undo – not used" : "Mark as used"}</button><button class="btn small danger" onclick="${used ? "removeUsed" : "removeRecipe"}(${i})">Remove</button></div></div>`;
+}
 function rRecipes() {
-  const idx = state.meals.map((m, i) => i).filter((i) => state.meals[i].name.trim() || String(state.meals[i].ingredients).trim())
-    .sort((a, b) => (state.meals[a].used ? 1 : 0) - (state.meals[b].used ? 1 : 0) || a - b);   // used meals sink to the bottom
-  const used = idx.filter((i) => state.meals[i].used).length;
-  $("v-recipes").innerHTML = bar("Weekly recipes") + (idx.length
-    ? `<p class="sub">${idx.length} meal${idx.length === 1 ? "" : "s"} this week${used ? ` · ${used} used, ${idx.length - used} to go` : ""}. Tap <b>Mark as used</b> once you've cooked one.</p>` +
-      idx.map((i) => {
-        const m = state.meals[i];
-        const ing = String(m.ingredients).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-        const where = [m.book && m.book.trim(), m.page && String(m.page).trim() ? "page " + String(m.page).trim() : ""].filter(Boolean).join(" · ");
-        return `<div class="card rcp ${m.used ? "used" : ""}"><h3>${m.used ? "✓ " : ""}${esc(m.name.trim() || "Untitled meal")}</h3><div class="bk">${esc(where || "No recipe book noted")}</div>${ing.length ? `<ul>${ing.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : '<div class="hint">No ingredients listed.</div>'}
-          <div class="row2" style="margin-top:10px"><button class="btn small ${m.used ? "ghost" : ""}" onclick="toggleUsed(${i})">${m.used ? "Undo – not used" : "Mark as used"}</button><button class="btn small danger" onclick="removeRecipe(${i})">Remove</button></div></div>`;
-      }).join("")
+  const idx = state.meals.map((m, i) => i).filter((i) => state.meals[i].name.trim() || String(state.meals[i].ingredients).trim());
+  const done = state.usedMeals, total = idx.length + done.length;
+  $("v-recipes").innerHTML = bar("Weekly recipes") + (total
+    ? `<p class="sub">${total} meal${total === 1 ? "" : "s"} this week${done.length ? ` · ${done.length} used, ${idx.length} to go` : ""}. <b>Mark as used</b> once you've cooked one — it's struck off here and cleared from the Meal planner.</p>` +
+      idx.map((i) => recipeCard(state.meals[i], "todo", i)).join("") +
+      (done.length ? `<div class="secthead"><h2>Used this week</h2></div>` + done.map((m, j) => recipeCard(m, "used", j)).join("") : "")
     : `<div class="empty"><div class="big">📖</div><b>No meals planned yet</b><p>Add them in the Meal planner and they'll show up here.</p><button class="btn" onclick="go('planner')">Go to Meal planner</button></div>`) +
     `<div class="syncline"></div>`;
 }
-// Strike a meal off once cooked. Local to this week; doesn't change the shopping list.
-function toggleUsed(i) { state.meals[i].used = !state.meals[i].used; touch(); backupSoon(); rRecipes(); }
+// Cooked it: strike it off here, clear its slot in the Meal planner, and back up. The shopping list is untouched.
+function toggleUsed(i) {
+  const m = state.meals[i];
+  state.usedMeals.push({ name: m.name, book: m.book, page: m.page, ingredients: m.ingredients });
+  state.meals[i] = emptyMeal(); delete ui.auto[i]; delete ui.autoNote[i];
+  touch(); backupSoon(); rRecipes();
+}
+// Undo: put it back in the first empty planner slot.
+function unuseMeal(j) {
+  const i = state.meals.findIndex((m) => !m.name.trim() && !String(m.ingredients || "").trim());
+  if (i < 0) return alert(`All ${MAX_MEALS} meal slots in the Meal planner are full — clear one first.`);
+  state.meals[i] = state.usedMeals.splice(j, 1)[0]; touch(); backupSoon(); rRecipes();
+}
+function removeUsed(j) {
+  if (!confirm(`Remove "${state.usedMeals[j].name.trim() || "this meal"}" from this week's list?`)) return;
+  state.usedMeals.splice(j, 1); touch(); backupSoon(); rRecipes();
+}
 function removeRecipe(i) {
   if (!confirm(`Remove "${state.meals[i].name.trim() || "this meal"}" from this week's plan? Its saved ingredients in Previous meals are kept.`)) return;
   state.meals[i] = emptyMeal(); touch(); backupSoon(); rRecipes();
@@ -669,6 +700,7 @@ function canFillIngredients(i) {
 // Update the meal's on-screen fields in place (no full redraw, so the keyboard/focus isn't disturbed).
 function refreshMealFields(i) {
   const m = state.meals[i], set = (id, v) => { const el = $(id); if (el) el.value = v; };
+  const rc = $("mr-" + i); if (rc) rc.checked = !!m.reuse;
   set("mn-" + i, m.name); set("mb-" + i, m.book); set("mp-" + i, m.page); set("mi-" + i, m.ingredients);
   const t = $("mt-" + i), s = $("ms-" + i), c = $("meal-" + i), a = $("auto-" + i);
   if (t) t.textContent = m.name.trim() || "Meal " + (i + 1);
