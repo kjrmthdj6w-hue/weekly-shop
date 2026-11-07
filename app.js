@@ -154,10 +154,10 @@ function touch() { state.updatedAt = new Date().toISOString(); save(); scheduleB
 /* ---------------------------------------------------------------------
    Settings (GitHub backup details live here, separate from the data)
    --------------------------------------------------------------------- */
-function defaultSettings() { return { github: { token: "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", owner: "kjrmthdj6w-hue", repo: "weekly-shop-data", path: "meal-data.json", auto: true } }; }
+function defaultSettings() { return { github: { token: "", owner: "kjrmthdj6w-hue", repo: "weekly-shop-data", path: "meal-data.json", auto: true } }; }
 function getSettings() {
   const d = defaultSettings();
-  try { const p = JSON.parse(localStorage.getItem(LS_SETTINGS)); if (p && p.github) { const def = d.github; d.github = { ...def, ...p.github }; if (!d.github.token) d.github.token = def.token; if (!d.github.owner) d.github.owner = def.owner; if (!d.github.repo) d.github.repo = def.repo; } } catch (e) {}
+  try { const p = JSON.parse(localStorage.getItem(LS_SETTINGS)); if (p && p.github) { const def = d.github; d.github = { ...def, ...p.github }; if (!d.github.owner) d.github.owner = def.owner; if (!d.github.repo) d.github.repo = def.repo; } } catch (e) {}
   return d;
 }
 function putSettings(s) { try { localStorage.setItem(LS_SETTINGS, JSON.stringify(s)); } catch (e) {} }

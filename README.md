@@ -69,7 +69,7 @@ Your data lives on the phone. This copies it to GitHub so a wipe can't lose it.
 
 ## Adding the app to a new device
 
-Open the address, Add to Home Screen, then ⚙︎ Settings: the username and repo name are already filled in. Paste your token (keep it in Notes or a password manager, never in the app's files), tap **Save**, then **Load saved data**. Note: at your request the token is built into `app.js` as a default, so a new device should connect on its own. Because the repo is public, GitHub may automatically revoke it. If syncing stops, create a new token and paste it into Settings.
+Open the address, Add to Home Screen, then ⚙︎ Settings: the username and repo name are already filled in. Paste your token (keep it in Notes or a password manager, never in the app's files), tap **Save**, then **Load saved data**. The token is deliberately not built into the app, because these files are public and GitHub revokes tokens it finds there.
 
 ## Updating the app later
 
