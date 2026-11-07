@@ -67,6 +67,10 @@ Your data lives on the phone. This copies it to GitHub so a wipe can't lose it.
 - If both sides changed, it never overwrites silently. It asks, or shows a warning.
 - **Load saved data** (Settings) fetches the GitHub copy on demand and shows a green confirmation when it succeeds.
 
+## Adding the app to a new device
+
+Open the address, Add to Home Screen, then ⚙︎ Settings: the username and repo name are already filled in. Paste your token (keep it in Notes or a password manager, never in the app's files), tap **Save**, then **Load saved data**. Note: at your request the token is built into `app.js` as a default, so a new device should connect on its own. Because the repo is public, GitHub may automatically revoke it. If syncing stops, create a new token and paste it into Settings.
+
 ## Updating the app later
 
 Replace the changed files in the repo (Add file → Upload files). The app always fetches the newest files when online, so just close and reopen it.
