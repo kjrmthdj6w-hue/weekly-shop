@@ -239,6 +239,9 @@ async function backupNow({ quiet = false } = {}) {
   }
 }
 
+// Back up straight away (instead of waiting 10s) — used for deliberate actions like marking a meal used.
+function backupSoon() { const g = ghCfg(); if (!g || !g.auto) return; clearTimeout(backupTimer); backupNow({ quiet: true }); }
+
 function scheduleBackup() {
   const g = ghCfg(); if (!g || !g.auto) return;
   clearTimeout(backupTimer);
@@ -260,6 +263,22 @@ async function syncOnOpen() {
       setSync("⚠️ GitHub has a different copy — Settings → Load saved data to take it", "err");
     }
   } catch (e) { /* offline is fine */ }
+}
+
+// Home-screen "Update" button: pull the newest backup (e.g. after using another device).
+async function updateFromBackup() {
+  const g = ghCfg(), msg = $("upd-msg"), say = (t, k) => { if (msg) { msg.textContent = t; msg.style.color = k === "err" ? "var(--danger)" : k === "ok" ? "var(--accent)" : ""; } };
+  if (!g) return say("Backup isn't set up yet — add your GitHub details in Settings.", "err");
+  say("Checking GitHub…", "");
+  try {
+    const r = await ghGet(g);
+    if (!r || !r.data) return say("No backup found on GitHub yet.", "err");
+    const dirty = state.updatedAt && state.updatedAt !== getSynced();
+    if (r.data.updatedAt === state.updatedAt || (!dirty && r.data.updatedAt === getSynced())) return say("✅ Already up to date", "ok");
+    if (dirty && !confirm("This device has changes that aren't backed up yet. Updating will replace them with the latest backup. Continue?")) return say("Update cancelled — your changes are kept.", "");
+    adopt(r.data);
+    const m2 = $("upd-msg"); if (m2) { m2.textContent = "✅ Updated from the latest backup"; m2.style.color = "var(--accent)"; }
+  } catch (e) { say("Couldn't reach GitHub: " + (e.message || "offline"), "err"); }
 }
 
 function adopt(data) {
@@ -310,6 +329,8 @@ function rHome() {
   const planned = state.meals.filter((m) => m.name.trim()).length;
   $("v-home").innerHTML = `
     <div class="brand"><h1>Weekly<br><span>Shop</span></h1><button class="gear" aria-label="Settings" onclick="go('settings')">⚙︎</button></div>
+    <button class="btn ghost updbtn" id="upd-btn" onclick="updateFromBackup()">⟳ Update from latest backup</button>
+    <div class="syncline" id="upd-msg" style="margin:-4px 0 14px"></div>
     <div class="tiles">
       <button class="tile main" onclick="go('shopping')"><span class="ic">🛒</span><span><div class="tt">Shopping list</div><div class="ts">${sh ? `${n} items · ${ticked} ticked` : "Not populated yet"}</div></span></button>
       <button class="tile" onclick="go('planner')"><span class="ic">🍽️</span><span><div class="tt">Meal planner</div><div class="ts">${planned} of ${MAX_MEALS} meals planned</div></span></button>
@@ -406,8 +427,9 @@ function rPlanner() {
         <div class="sugs" id="sug-${i}"></div><div class="hint" id="auto-${i}">${ui.autoNote[i] ? AUTO_NOTE : ""}</div>
         <div class="row2"><div><label class="l">Recipe book</label><input type="text" id="mb-${i}" list="books" value="${esc(m.book)}" oninput="editMeal(${i},'book',this.value)" placeholder="e.g. Fast food"></div>
         <div class="narrow"><label class="l">Page</label><input type="text" id="mp-${i}" inputmode="numeric" value="${esc(m.page)}" oninput="editMeal(${i},'page',this.value)" placeholder="18"></div></div>
-        <label class="l">Ingredients — one per line</label>
-        <textarea id="mi-${i}" oninput="editMeal(${i},'ingredients',this.value)" placeholder="cherry tomatoes&#10;cucumber&#10;feta">${esc(m.ingredients)}</textarea>
+        <label class="l">Ingredients <span class="hintinline" id="icn-${i}"></span></label>
+        <div class="chips ingchips" id="ic-${i}"></div>
+        <textarea id="mi-${i}" oninput="editMeal(${i},'ingredients',this.value)" placeholder="Add ingredients here, one per line">${esc(m.ingredients)}</textarea>
         <button class="link" onclick="clearMeal(${i})">Clear this meal</button>
       </div></div>`).join("");
   const misc = state.misc.map((x, i) => `<button class="chip ${x.selected ? "on" : ""}" onclick="${ui.editMisc ? `delMisc(${i})` : `toggleMisc(${i})`}">${esc(x.name)}${ui.editMisc ? '<span class="x">✕</span>' : ""}</button>`).join("");
@@ -422,7 +444,7 @@ function rPlanner() {
      <div class="stack"><button class="btn ghost" onclick="newWeek()">Start a new week (clear meals &amp; ticks)</button></div>
      <div class="sticky"><button class="btn" onclick="populate()">Complete – populate shopping list</button></div>
      <div class="syncline"></div>`;
-  state.meals.forEach((_, i) => renderSugs(i));
+  state.meals.forEach((_, i) => { renderSugs(i); renderIngChips(i); });
 }
 
 function toggleMeal(i) { ui.openMeals.has(i) ? ui.openMeals.delete(i) : ui.openMeals.add(i); const m = $("meal-" + i); if (m) m.classList.toggle("open", ui.openMeals.has(i)); }
@@ -432,6 +454,20 @@ function editMeal(i, field, val) {
   if (t) t.textContent = m.name.trim() || "Meal " + (i + 1);
   if (s) s.textContent = mealSummary(m);
   if (card) card.classList.toggle("filled", !!m.name.trim());
+  if (field === "ingredients") renderIngChips(i);
+}
+const ingLines = (s) => String(s || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+// Show each ingredient as a chip; tap one to remove it (handy for auto-filled ingredients you don't need this week).
+function renderIngChips(i) {
+  const box = $("ic-" + i); if (!box) return;
+  const list = ingLines(state.meals[i].ingredients), n = $("icn-" + i);
+  box.innerHTML = list.map((g, gi) => `<button class="chip" onclick="removeIng(${i},${gi})">${esc(g)} <span class="x">✕</span></button>`).join("");
+  if (n) n.textContent = list.length ? "— tap ✕ to remove one" : "— one per line";
+}
+function removeIng(i, gi) {
+  const list = ingLines(state.meals[i].ingredients); list.splice(gi, 1);
+  const v = list.join("\n"), ta = $("mi-" + i); if (ta) ta.value = v;
+  editMeal(i, "ingredients", v); renderSugs(i);
 }
 function clearMeal(i) { if (!confirm(`Clear meal ${i + 1}?`)) return; state.meals[i] = emptyMeal(); touch(); rPlanner(); }
 function toggleMisc(i) { state.misc[i].selected = !state.misc[i].selected; touch(); rPlanner(); }
@@ -453,7 +489,7 @@ function populate() {
   state.shopping = { generatedAt: new Date().toISOString(), items };
   const rec = recordMeals(state);       // remember these meals + ingredients for next time
   touch();
-  if (ghCfg() && getSettings().github.auto) { clearTimeout(backupTimer); backupNow({ quiet: true }); }
+  backupSoon();
   const unk = items.filter((i) => !i.aisle).length;
   ui.shopBanner = `✅ Shopping list populated — ${items.length} unique items sorted by aisle.${unk ? ` ${unk} need an aisle.` : ""}${rec.meals ? ` ${rec.meals} meal${rec.meals === 1 ? "" : "s"} saved to Previous meals${rec.added ? ` (+${rec.added} new ingredient${rec.added === 1 ? "" : "s"})` : ""}.` : ""}`;
   go("shopping");
@@ -463,7 +499,8 @@ function populate() {
    WEEKLY RECIPES
    --------------------------------------------------------------------- */
 function rRecipes() {
-  const idx = state.meals.map((m, i) => i).filter((i) => state.meals[i].name.trim() || String(state.meals[i].ingredients).trim());
+  const idx = state.meals.map((m, i) => i).filter((i) => state.meals[i].name.trim() || String(state.meals[i].ingredients).trim())
+    .sort((a, b) => (state.meals[a].used ? 1 : 0) - (state.meals[b].used ? 1 : 0) || a - b);   // used meals sink to the bottom
   const used = idx.filter((i) => state.meals[i].used).length;
   $("v-recipes").innerHTML = bar("Weekly recipes") + (idx.length
     ? `<p class="sub">${idx.length} meal${idx.length === 1 ? "" : "s"} this week${used ? ` · ${used} used, ${idx.length - used} to go` : ""}. Tap <b>Mark as used</b> once you've cooked one.</p>` +
@@ -478,10 +515,10 @@ function rRecipes() {
     `<div class="syncline"></div>`;
 }
 // Strike a meal off once cooked. Local to this week; doesn't change the shopping list.
-function toggleUsed(i) { state.meals[i].used = !state.meals[i].used; touch(); rRecipes(); }
+function toggleUsed(i) { state.meals[i].used = !state.meals[i].used; touch(); backupSoon(); rRecipes(); }
 function removeRecipe(i) {
   if (!confirm(`Remove "${state.meals[i].name.trim() || "this meal"}" from this week's plan? Its saved ingredients in Previous meals are kept.`)) return;
-  state.meals[i] = emptyMeal(); touch(); rRecipes();
+  state.meals[i] = emptyMeal(); touch(); backupSoon(); rRecipes();
 }
 
 /* ---------------------------------------------------------------------
@@ -533,7 +570,7 @@ function renderKwList() {
     <button class="ib" aria-label="Delete keyword" onclick="delKw(${i})">✕</button></div>`).join("") : '<p class="hint">No keywords match.</p>';
 }
 
-function moveAisle(i, d) { const j = i + d; if (j < 0 || j >= state.aisles.length) return; [state.aisles[i], state.aisles[j]] = [state.aisles[j], state.aisles[i]]; touch(); rAisles(); }
+function moveAisle(i, d) { const j = i + d; if (j < 0 || j >= state.aisles.length) return; [state.aisles[i], state.aisles[j]] = [state.aisles[j], state.aisles[i]]; touch(); backupSoon(); rAisles(); }
 function renameAisle(i) {
   const old = state.aisles[i], nv = (prompt("Rename aisle:", old) || "").trim(); if (!nv || nv === old) return;
   if (state.aisles.some((a) => a.toLowerCase() === nv.toLowerCase())) return alert("An aisle with that name already exists.");
@@ -545,7 +582,7 @@ function delAisle(i) {
   const a = state.aisles[i], n = state.keywords.filter((k) => k.a === a).length;
   if (n) return alert(`"${a}" still has ${n} keyword${n === 1 ? "" : "s"}. Move or delete them first (search "${a}" in All keywords).`);
   if (!confirm(`Delete the aisle "${a}"?`)) return;
-  state.aisles.splice(i, 1); reclassify(); touch(); rAisles();
+  state.aisles.splice(i, 1); reclassify(); touch(); backupSoon(); rAisles();
 }
 function addAisle() {
   const v = $("aisle-new").value.trim(); if (!v) return;
@@ -638,7 +675,7 @@ function refreshMealFields(i) {
   if (s) s.textContent = mealSummary(m);
   if (c) c.classList.toggle("filled", !!m.name.trim());
   if (a) a.textContent = ui.autoNote[i] ? AUTO_NOTE : "";
-  renderSugs(i);
+  renderSugs(i); renderIngChips(i);
 }
 
 function fillFromHistory(i, h, { override = false } = {}) {
@@ -749,3 +786,7 @@ render();
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 syncOnOpen();
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") syncOnOpen();
+  else if (ghCfg() && getSettings().github.auto && state.updatedAt && state.updatedAt !== getSynced()) { clearTimeout(backupTimer); backupNow({ quiet: true }); }
+});

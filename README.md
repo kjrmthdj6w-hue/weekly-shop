@@ -22,6 +22,13 @@ Also: **Settings** (⚙︎ top right) for GitHub backup, and **Start a new week*
 - While typing, tappable suggestions appear (top 5 when the name is empty). **↻ Load saved ingredients** re-fills a meal. The app never overwrites ingredients you've typed yourself without asking.
 - Names match ignoring capitals and extra spaces. Existing backups stay compatible.
 
+## Using several devices
+
+- Open the app and tap **⟳ Update from latest backup** on the Home page to pull the newest data. It also checks automatically when you open or return to the app (only if this device has no unsaved changes, so nothing is overwritten silently).
+- Backups happen straight away when you populate the shopping list, mark or remove a recipe, or change the aisle order, and about 10 seconds after other edits. Leaving the app also sends any pending change.
+- The **aisle order** (and renames, keywords, extras, meals and history) are all part of the GitHub backup, so another device gets the same shop layout and the shopping list order follows it.
+- In the Meal planner each ingredient shows as a chip: tap ✕ to drop it (e.g. rice you don't need this week).
+
 ## How it matches the macro
 
 - Ingredients are lower-cased, "(have)" and "?" are removed, duplicates are counted.
