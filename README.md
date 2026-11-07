@@ -9,7 +9,7 @@ and installs on your iPhone Home Screen. No Apple developer account, nothing exp
 | Page | What it does |
 |---|---|
 | **Shopping list** | The aisle-sorted list the macro used to write into columns H–J. Tick items off as you shop. Duplicates show as ×2, ×3. Items it can't place are highlighted yellow with a dropdown to choose an aisle (remembered for next time). **Share list** sends it to a message/Notes. |
-| **Meal planner** | Up to 8 meals a week, each with name, recipe book, page and ingredients (one per line). Below them, your **Extras & household** list (the old Misc column): tap an item to highlight it yellow = "needed this week". **Complete – populate shopping list** at the bottom does what the macro did. |
+| **Meal planner** | 8 meal slots a week to start with (add up to 20 with **＋ Add another meal**, or **Remove this slot** to have fewer), each with name, recipe book, page and ingredients (one per line). Below them, your **Extras & household** list (the old Misc column): tap an item to highlight it yellow = "needed this week". **Complete – populate shopping list** at the bottom does what the macro did. |
 | **Aisle planner** | Reorder, rename, add and delete aisles (▲▼✎✕). Add keywords manually, fix unknown ingredients from the current list, search/edit all keywords. |
 | **Weekly recipes** | This week's meals with book, page and ingredients. **Mark as used** strikes the meal through, moves it to a "Used this week" section at the bottom, **clears it from the Meal planner**, and backs up straight away. **Undo** puts it back in the first free planner slot; **Remove** deletes it. None of this changes the shopping list or Previous meals. |
 | **Previous meals** | Every meal you've planned is saved here automatically when you tap *Complete – populate shopping list*: name, recipe book, page and ingredients. Ingredients **accumulate and never duplicate** (Carrot one week, Rice the next → Carrot, Rice). Each meal counts once per week, and a **Top 5 recipes** list shows your most-chosen. Open a meal to edit its book/page, remove or add ingredients, add it to this week's plan, or delete it. |
@@ -43,7 +43,7 @@ Each meal in the Meal planner has a **Meal to be re-used this week** switch. Tur
 
 **One deliberate improvement:** the macro used the *first* matching keyword down the sheet, so a specific keyword you added later could never win (e.g. "bean" always beat "green beans"). The app uses the **longest matching keyword** instead. On your current data this changes two items, both towards what your own keywords intended: *stir fry veg mix* → Frozen, and *coconut milk* → Condiments.
 
-Your sheet had 10 meal slots; you asked for a maximum of 8, so the app starts with the first 8 (Spanish saffron chicken and Cotelli weren't carried over). To change the limit, edit `MAX_MEALS = 8` at the top of `app.js`.
+Your sheet had 10 meal slots; the app starts each week with 8 (you can add or remove slots in the planner, see above) and began with the first 8 (Spanish saffron chicken and Cotelli weren't carried over). To change the limit, edit `MAX_MEALS = 8` at the top of `app.js`.
 
 Not carried over: the `MoveYellowToShoppingList` macro, because tapping to highlight extras replaces it, and the empty "Breakfast" column E, which the macro read but your sheet doesn't use.
 

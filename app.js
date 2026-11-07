@@ -3,7 +3,8 @@
    Ported from the Food_Improved_v4.xlsm macro (RefreshShoppingList).
    ===================================================================== */
 
-const MAX_MEALS = 8;               // change here if you ever want more meal slots
+const MAX_MEALS = 8;               // meal slots a fresh week starts with
+const MAX_SLOTS = 20;              // most slots you can add
 const LS_STATE = "weeklyshop.state.v1";
 const LS_SETTINGS = "weeklyshop.settings.v1";
 const LS_SYNCED = "weeklyshop.syncedAt.v1";
@@ -136,7 +137,7 @@ function normalise() {
     ingredients: Array.isArray(h.ingredients) ? h.ingredients : [], count: h.count || 0, lastUsed: h.lastUsed || null, lastCountedWeek: h.lastCountedWeek || null
   })) : [];
   state.meals = (state.meals || []).map((m) => ({ ...emptyMeal(), ...m }));
-  while (state.meals.length < MAX_MEALS) state.meals.push(emptyMeal());
+  if (!state.meals.length) while (state.meals.length < MAX_MEALS) state.meals.push(emptyMeal());   // slots can be added/removed, so keep whatever count was saved
   state.meals = state.meals.map((m) => {       // older data: a meal flagged "used" moves out of the planner
     if (m.used) { state.usedMeals.push({ name: m.name, book: m.book, page: m.page, ingredients: m.ingredients }); return emptyMeal(); }
     const { used, ...rest } = m; return rest;
@@ -339,7 +340,7 @@ function rHome() {
     <div class="syncline" id="upd-msg" style="margin:-4px 0 14px"></div>
     <div class="tiles">
       <button class="tile main" onclick="go('shopping')"><span class="ic">🛒</span><span><div class="tt">Shopping list</div><div class="ts">${sh ? `${n} items · ${ticked} ticked` : "Not populated yet"}</div></span></button>
-      <button class="tile" onclick="go('planner')"><span class="ic">🍽️</span><span><div class="tt">Meal planner</div><div class="ts">${planned} of ${MAX_MEALS} meals planned</div></span></button>
+      <button class="tile" onclick="go('planner')"><span class="ic">🍽️</span><span><div class="tt">Meal planner</div><div class="ts">${planned} of ${state.meals.length} meals planned</div></span></button>
       <button class="tile" onclick="go('aisles')"><span class="ic">🧭</span><span><div class="tt">Aisle planner</div><div class="ts">${state.aisles.length} aisles · ${state.keywords.length} keywords</div></span></button>
       <button class="tile" onclick="go('recipes')"><span class="ic">📖</span><span><div class="tt">Weekly recipes</div><div class="ts">${planned} recipe${planned === 1 ? "" : "s"} this week</div></span></button>
       <button class="tile wide" onclick="go('history')"><span class="ic">🕘</span><span><div class="tt">Previous meals</div><div class="ts">${state.history.length ? `${state.history.length} meal${state.history.length === 1 ? "" : "s"} remembered · top: ${esc(top5(state)[0] ? top5(state)[0].name : "–")}` : "Builds up as you plan"}</div></span></button>
@@ -424,7 +425,7 @@ function mealSummary(m) {
 
 function rPlanner() {
   const books = [...new Set(state.meals.map((m) => (m.book || "").trim()).filter(Boolean))];
-  const meals = state.meals.slice(0, Math.max(MAX_MEALS, state.meals.length)).map((m, i) => `
+  const meals = state.meals.map((m, i) => `
     <div class="meal ${m.name.trim() ? "filled" : ""} ${m.reuse ? "reuse" : ""} ${ui.openMeals.has(i) ? "open" : ""}" id="meal-${i}">
       <button class="mhead" onclick="toggleMeal(${i})"><span class="mnum">${i + 1}</span>
         <span class="mtxt"><span class="mt" id="mt-${i}">${esc(m.name.trim() || "Meal " + (i + 1))}</span><span class="ms" id="ms-${i}">${esc(mealSummary(m))}</span></span><span class="chev">›</span></button>
@@ -437,13 +438,14 @@ function rPlanner() {
         <label class="l">Ingredients <span class="hintinline" id="icn-${i}"></span></label>
         <div class="chips ingchips" id="ic-${i}"></div>
         <textarea id="mi-${i}" oninput="editMeal(${i},'ingredients',this.value)" placeholder="Add ingredients here, one per line">${esc(m.ingredients)}</textarea>
-        <button class="link" onclick="clearMeal(${i})">Clear this meal</button>
+        <div class="row2" style="justify-content:flex-start"><button class="link" onclick="clearMeal(${i})">Clear this meal</button>${state.meals.length > 1 ? `<button class="link" style="color:var(--danger)" onclick="removeSlot(${i})">Remove this slot</button>` : ""}</div>
       </div></div>`).join("");
   const misc = state.misc.map((x, i) => `<button class="chip ${x.selected ? "on" : ""}" onclick="${ui.editMisc ? `delMisc(${i})` : `toggleMisc(${i})`}">${esc(x.name)}${ui.editMisc ? '<span class="x">✕</span>' : ""}</button>`).join("");
   $("v-planner").innerHTML = bar("Meal planner") +
-    `<p class="sub">Fill in up to ${MAX_MEALS} meals, tick the extras you need, then populate the list.</p>
+    `<p class="sub">Plan as many meals as you need (leave unused ones blank, or add/remove slots), tick the extras you need, then populate the list.</p>
      <datalist id="books">${books.map((b) => `<option value="${esc(b)}">`).join("")}</datalist>` + meals +
-    `<div class="secthead"><h2>Extras &amp; household</h2><button class="link" onclick="ui.editMisc=!ui.editMisc;rPlanner()">${ui.editMisc ? "Done" : "Edit list"}</button></div>
+    `<button class="btn ghost" style="margin-top:6px" onclick="addSlot()" ${state.meals.length >= MAX_SLOTS ? "disabled" : ""}>＋ Add another meal</button>
+     <div class="secthead"><h2>Extras &amp; household</h2><button class="link" onclick="ui.editMisc=!ui.editMisc;rPlanner()">${ui.editMisc ? "Done" : "Edit list"}</button></div>
      <p class="hint" style="margin:-4px 0 10px">${ui.editMisc ? "Tap an item to delete it." : "Tap to highlight what you need this week (yellow = goes on the list)."}</p>
      <div class="chips">${misc}</div>
      <div class="row2" style="margin-top:12px"><input type="text" id="misc-new" placeholder="Add an extra item…" onkeydown="if(event.key==='Enter')addMisc()"><button class="btn small ghost" style="flex:0 0 auto" onclick="addMisc()">Add</button></div>
@@ -481,6 +483,16 @@ function removeIng(i, gi) {
   const v = list.join("\n"), ta = $("mi-" + i); if (ta) ta.value = v;
   editMeal(i, "ingredients", v); renderSugs(i);
 }
+function addSlot() {
+  if (state.meals.length >= MAX_SLOTS) return;
+  state.meals.push(emptyMeal()); ui.openMeals = new Set([state.meals.length - 1]); touch(); rPlanner();
+  const el = $("meal-" + (state.meals.length - 1)); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+function removeSlot(i) {
+  const m = state.meals[i], has = m.name.trim() || String(m.ingredients || "").trim();
+  if (state.meals.length <= 1 || (has && !confirm(`Remove meal slot ${i + 1} (“${m.name.trim() || "untitled"}”)?`))) return;
+  state.meals.splice(i, 1); ui.openMeals = new Set(); ui.auto = {}; ui.autoNote = {}; touch(); rPlanner();
+}
 function clearMeal(i) { if (!confirm(`Clear meal ${i + 1}?`)) return; state.meals[i] = emptyMeal(); touch(); rPlanner(); }
 function toggleMisc(i) { state.misc[i].selected = !state.misc[i].selected; touch(); rPlanner(); }
 function delMisc(i) { state.misc.splice(i, 1); touch(); rPlanner(); }
@@ -492,7 +504,7 @@ function newWeek() {
   if (!confirm("Clear all meals and un-highlight the extras? Your aisles and extras list stay.")) return;
   const left = state.meals.filter((m) => m.name.trim() || String(m.ingredients || "").trim());
   const keep = left.length && confirm(`You have ${left.length} meal${left.length === 1 ? "" : "s"} you haven't cooked yet.\n\nOK = keep ${left.length === 1 ? "it" : "them"} in the new week as "re-used" (ingredients left off the shopping list).\nCancel = clear ${left.length === 1 ? "it" : "them"} too.`);
-  state.meals = Array.from({ length: MAX_MEALS }, emptyMeal); state.usedMeals = [];
+  state.meals = Array.from({ length: Math.max(MAX_MEALS, keep ? left.length : 0) }, emptyMeal); state.usedMeals = [];
   if (keep) left.forEach((m, k) => { state.meals[k] = { ...m, reuse: true }; });
   state.misc.forEach((x) => (x.selected = false));
   ui.openMeals = new Set([0]); ui.auto = {}; ui.autoNote = {}; touch(); rPlanner(); toast("Fresh week ready ✓");
@@ -539,8 +551,9 @@ function toggleUsed(i) {
 }
 // Undo: put it back in the first empty planner slot.
 function unuseMeal(j) {
-  const i = state.meals.findIndex((m) => !m.name.trim() && !String(m.ingredients || "").trim());
-  if (i < 0) return alert(`All ${MAX_MEALS} meal slots in the Meal planner are full — clear one first.`);
+  let i = state.meals.findIndex((m) => !m.name.trim() && !String(m.ingredients || "").trim());
+  if (i < 0 && state.meals.length >= MAX_SLOTS) return alert("The Meal planner is full — clear a slot first.");
+  if (i < 0) { state.meals.push(emptyMeal()); i = state.meals.length - 1; }
   state.meals[i] = state.usedMeals.splice(j, 1)[0]; touch(); backupSoon(); rRecipes();
 }
 function removeUsed(j) {
@@ -805,8 +818,9 @@ function histDelete(id) {
 function useMeal(id) {
   const h = state.history.find((x) => x.id === id); if (!h) return;
   if (state.meals.some((m) => mealKey(m.name) === mealKey(h.name))) return alert(`"${h.name}" is already in this week's plan.`);
-  const i = state.meals.findIndex((m) => !m.name.trim() && !String(m.ingredients || "").trim());
-  if (i < 0) return alert(`All ${MAX_MEALS} meal slots are full — clear one in the Meal planner first.`);
+  let i = state.meals.findIndex((m) => !m.name.trim() && !String(m.ingredients || "").trim());
+  if (i < 0 && state.meals.length >= MAX_SLOTS) return alert("The Meal planner is full — clear a slot first.");
+  if (i < 0) { state.meals.push(emptyMeal()); i = state.meals.length - 1; }
   ui.openMeals = new Set([i]); fillFromHistory(i, h, { override: true }); go("planner"); toast(`Added to meal ${i + 1}`);
 }
 
