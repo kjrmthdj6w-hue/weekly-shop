@@ -22,6 +22,12 @@ Also: **Settings** (⚙︎ top right) for GitHub backup, and **Start a new week*
 - While typing, tappable suggestions appear (top 5 when the name is empty). **↻ Load saved ingredients** re-fills a meal. The app never overwrites ingredients you've typed yourself without asking.
 - Names match ignoring capitals and extra spaces. Existing backups stay compatible.
 
+## Faff rating and per-meal extras
+
+- **Faff rating (1–5 stars, 5 = lots of faff):** set it in **Weekly recipes** (also on used recipes), in the Meal planner, or on the Previous meals page. Tap the same star again to clear it. It's saved with the recipe, so next time you plan that meal the rating comes back and shows in the meal's summary line.
+- **Extras for this meal** (e.g. garlic bread) sit under the ingredients in the Meal planner. They're added to the shopping list like ingredients, and saved with the recipe in Previous meals. Next time you type that meal they fill in again; tap ✕ to leave one out for that week without losing it from the saved recipe (delete it on the Previous meals page to forget it for good). They're skipped on the shopping list for meals marked re-used.
+- Home screen has a **⬆ Back up now** button beside **⟳ Update from backup**.
+
 ## Re-using last week's meals
 
 Each meal in the Meal planner has a **Meal to be re-used this week** switch. Turn it on for a meal you bought for but didn't cook last week: it stays in the planner with its ingredients, but those ingredients are **left off the shopping list** so you don't buy them twice. It also isn't counted again in Previous meals. When you tap **Start a new week**, the app offers to keep your uncooked meals and marks them as re-used automatically.

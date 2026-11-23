@@ -40,7 +40,7 @@ function aisleRank(aisle, st) {
 
 function collectIngredients(st) {
   const out = [];
-  st.meals.filter((m) => !m.reuse).forEach((m) => String(m.ingredients || "").split(/\r?\n/).forEach((l) => out.push(l)));
+  st.meals.filter((m) => !m.reuse).forEach((m) => (String(m.ingredients || "") + "\n" + String(m.extras || "")).split(/\r?\n/).forEach((l) => out.push(l)));
   st.misc.filter((x) => x.selected).forEach((x) => out.push(x.name));   // misc only if "yellow"
   return out;
 }
@@ -105,6 +105,12 @@ function recordMeals(st, now = new Date()) {
       const k = cleanItem(line);
       if (k && !have.has(k)) { have.add(k); h.ingredients.push(ingDisplay(line)); added++; }
     });
+    const haveX = new Set((h.extras = h.extras || []).map(cleanItem));
+    String(m.extras || "").split(/\r?\n/).forEach((line) => {
+      const k = cleanItem(line);
+      if (k && !haveX.has(k)) { haveX.add(k); h.extras.push(ingDisplay(line)); }
+    });
+    if (m.faff > 0) h.faff = m.faff;
     if (h.lastCountedWeek !== wk) { h.count++; h.lastCountedWeek = wk; }
     h.lastUsed = now.toISOString();
   }
@@ -119,7 +125,9 @@ function top5(st) {
 let state;
 const ui = { screen: "home", openMeals: new Set([0]), editMisc: false, shopBanner: "", kwFilter: "", kwOpen: false, settingsMsg: null, openHist: new Set(), histFilter: "", auto: {}, autoNote: {} };
 
-function emptyMeal() { return { name: "", book: "", page: "", ingredients: "", reuse: false }; }
+function emptyMeal() { return { name: "", book: "", page: "", ingredients: "", extras: "", faff: 0, reuse: false }; }
+// A meal as stored once cooked (Weekly recipes "Used" list): keeps its extras and faff rating.
+const mealCopy = (m) => ({ name: m.name, book: m.book, page: m.page, ingredients: m.ingredients, extras: m.extras || "", faff: m.faff || 0 });
 
 function freshState() {
   const s = JSON.parse(JSON.stringify(SEED));
@@ -134,12 +142,13 @@ function normalise() {
   state.misc = state.misc || [];
   state.history = Array.isArray(state.history) ? state.history.map((h) => ({
     id: h.id || "h" + Math.random().toString(36).slice(2, 9), name: h.name || "", book: h.book || "", page: h.page || "",
-    ingredients: Array.isArray(h.ingredients) ? h.ingredients : [], count: h.count || 0, lastUsed: h.lastUsed || null, lastCountedWeek: h.lastCountedWeek || null
+    ingredients: Array.isArray(h.ingredients) ? h.ingredients : [], extras: Array.isArray(h.extras) ? h.extras : [], faff: h.faff || 0, count: h.count || 0, lastUsed: h.lastUsed || null, lastCountedWeek: h.lastCountedWeek || null
   })) : [];
   state.meals = (state.meals || []).map((m) => ({ ...emptyMeal(), ...m }));
   if (!state.meals.length) while (state.meals.length < MAX_MEALS) state.meals.push(emptyMeal());   // slots can be added/removed, so keep whatever count was saved
+  state.usedMeals = state.usedMeals.map((m) => ({ ...mealCopy(emptyMeal()), ...m }));
   state.meals = state.meals.map((m) => {       // older data: a meal flagged "used" moves out of the planner
-    if (m.used) { state.usedMeals.push({ name: m.name, book: m.book, page: m.page, ingredients: m.ingredients }); return emptyMeal(); }
+    if (m.used) { state.usedMeals.push(mealCopy(m)); return emptyMeal(); }
     const { used, ...rest } = m; return rest;
   });
   if (state.shopping && !Array.isArray(state.shopping.items)) state.shopping = null;
@@ -272,6 +281,16 @@ async function syncOnOpen() {
   } catch (e) { /* offline is fine */ }
 }
 
+// Home-screen "Back up now" button: save this device's data to GitHub right away.
+async function backupFromHome() {
+  const msg = $("upd-msg"), btn = $("bak-btn");
+  if (!ghCfg()) { if (msg) { msg.textContent = "Backup isn't set up yet — add your GitHub details in Settings."; msg.style.color = "var(--danger)"; } return; }
+  if (btn) btn.disabled = true;
+  if (msg) msg.style.color = "";
+  const r = await backupNow();                    // writes progress/result into every sync line, including this one
+  if (btn) btn.disabled = false;
+  const m2 = $("upd-msg"); if (m2) m2.style.color = r.ok ? "var(--accent)" : "var(--danger)";
+}
 // Home-screen "Update" button: pull the newest backup (e.g. after using another device).
 async function updateFromBackup() {
   const g = ghCfg(), msg = $("upd-msg"), say = (t, k) => { if (msg) { msg.textContent = t; msg.style.color = k === "err" ? "var(--danger)" : k === "ok" ? "var(--accent)" : ""; } };
@@ -336,7 +355,7 @@ function rHome() {
   const planned = state.meals.filter((m) => m.name.trim()).length;
   $("v-home").innerHTML = `
     <div class="brand"><h1>Weekly<br><span>Shop</span></h1><button class="gear" aria-label="Settings" onclick="go('settings')">⚙︎</button></div>
-    <button class="btn ghost updbtn" id="upd-btn" onclick="updateFromBackup()">⟳ Update from latest backup</button>
+    <div class="syncbtns"><button class="btn ghost updbtn" id="upd-btn" onclick="updateFromBackup()">⟳ Update from backup</button><button class="btn ghost updbtn" id="bak-btn" onclick="backupFromHome()">⬆ Back up now</button></div>
     <div class="syncline" id="upd-msg" style="margin:-4px 0 14px"></div>
     <div class="tiles">
       <button class="tile main" onclick="go('shopping')"><span class="ic">🛒</span><span><div class="tt">Shopping list</div><div class="ts">${sh ? `${n} items · ${ticked} ticked` : "Not populated yet"}</div></span></button>
@@ -420,7 +439,8 @@ function shareList() {
 function mealSummary(m) {
   const n = String(m.ingredients || "").split(/\r?\n/).filter((l) => l.trim()).length;
   const bits = [m.book && m.book.trim(), m.page && m.page.toString().trim() ? "p. " + m.page.toString().trim() : ""].filter(Boolean).join(", ");
-  return [m.reuse ? "♻ Re-used" : "", bits, n ? `${n} ingredient${n === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ") || "Tap to add";
+  const x = ingLines(m.extras).length;
+  return [m.reuse ? "♻ Re-used" : "", bits, n ? `${n} ingredient${n === 1 ? "" : "s"}` : "", x ? `+${x} extra${x === 1 ? "" : "s"}` : "", m.faff ? `Faff ${m.faff}/5` : ""].filter(Boolean).join(" · ") || "Tap to add";
 }
 
 function rPlanner() {
@@ -435,9 +455,14 @@ function rPlanner() {
         <div class="row2"><div><label class="l">Recipe book</label><input type="text" id="mb-${i}" list="books" value="${esc(m.book)}" oninput="editMeal(${i},'book',this.value)" placeholder="e.g. Fast food"></div>
         <div class="narrow"><label class="l">Page</label><input type="text" id="mp-${i}" inputmode="numeric" value="${esc(m.page)}" oninput="editMeal(${i},'page',this.value)" placeholder="18"></div></div>
         <label class="switch reusebox"><span><b>Meal to be re-used this week</b><small>Not cooked last week — ingredients are already bought, so they're left off the shopping list.</small></span><input type="checkbox" id="mr-${i}" ${m.reuse ? "checked" : ""} onchange="setReuse(${i},this.checked)"></label>
+        <label class="l">Faff rating <span class="hintinline">— how much hassle is it? (1 easy · 5 lots of faff)</span></label>
+        <div class="stars" id="fs-${i}">${starsHtml(m.faff, `setFaffPlan(${i},`)}</div>
         <label class="l">Ingredients <span class="hintinline" id="icn-${i}"></span></label>
         <div class="chips ingchips" id="ic-${i}"></div>
         <textarea id="mi-${i}" oninput="editMeal(${i},'ingredients',this.value)" placeholder="Add ingredients here, one per line">${esc(m.ingredients)}</textarea>
+        <label class="l" style="margin-top:12px">Extras for this meal <span class="hintinline" id="xcn-${i}">— e.g. garlic bread</span></label>
+        <div class="chips ingchips" id="xc-${i}"></div>
+        <div class="row2"><input type="text" id="xi-${i}" placeholder="Add an extra…" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();addExtra(${i})}"><button class="btn small ghost" style="flex:0 0 auto" onclick="addExtra(${i})">Add</button></div>
         <div class="row2" style="justify-content:flex-start"><button class="link" onclick="clearMeal(${i})">Clear this meal</button>${state.meals.length > 1 ? `<button class="link" style="color:var(--danger)" onclick="removeSlot(${i})">Remove this slot</button>` : ""}</div>
       </div></div>`).join("");
   const misc = state.misc.map((x, i) => `<button class="chip ${x.selected ? "on" : ""}" onclick="${ui.editMisc ? `delMisc(${i})` : `toggleMisc(${i})`}">${esc(x.name)}${ui.editMisc ? '<span class="x">✕</span>' : ""}</button>`).join("");
@@ -453,7 +478,7 @@ function rPlanner() {
      <div class="stack"><button class="btn ghost" onclick="newWeek()">Start a new week (clear meals &amp; ticks)</button></div>
      <div class="sticky"><button class="btn" onclick="populate()">Complete – populate shopping list</button></div>
      <div class="syncline"></div>`;
-  state.meals.forEach((_, i) => { renderSugs(i); renderIngChips(i); });
+  state.meals.forEach((_, i) => { renderSugs(i); renderIngChips(i); renderExtraChips(i); });
 }
 
 function toggleMeal(i) { ui.openMeals.has(i) ? ui.openMeals.delete(i) : ui.openMeals.add(i); const m = $("meal-" + i); if (m) m.classList.toggle("open", ui.openMeals.has(i)); }
@@ -472,6 +497,38 @@ function renderIngChips(i) {
   const list = ingLines(state.meals[i].ingredients), n = $("icn-" + i);
   box.innerHTML = list.map((g, gi) => `<button class="chip" onclick="removeIng(${i},${gi})">${esc(g)} <span class="x">✕</span></button>`).join("");
   if (n) n.textContent = list.length ? "— tap ✕ to remove one" : "— one per line";
+}
+// Faff rating: 5 tappable stars; tapping the current rating again clears it.
+const starsHtml = (val, fn) => [1, 2, 3, 4, 5].map((n) => `<button class="star ${n <= (val || 0) ? "on" : ""}" aria-label="Faff ${n} of 5" onclick="${fn}${n})">★</button>`).join("");
+// Keep the saved recipe (Previous meals) in step, so the rating is remembered next time you plan it.
+function rememberFaff(name, v) { const h = findHistory(state, name); if (h) h.faff = v; }
+function setFaffPlan(i, n) {
+  const m = state.meals[i]; m.faff = m.faff === n ? 0 : n; rememberFaff(m.name, m.faff); touch();
+  const fs = $("fs-" + i); if (fs) fs.innerHTML = starsHtml(m.faff, `setFaffPlan(${i},`);
+  const s = $("ms-" + i); if (s) s.textContent = mealSummary(m);
+}
+function setFaffRecipe(kind, i, n) {
+  const m = kind === "used" ? state.usedMeals[i] : state.meals[i]; m.faff = m.faff === n ? 0 : n; rememberFaff(m.name, m.faff);
+  touch(); backupSoon(); rRecipes();
+}
+function setFaffHist(id, n) { const h = state.history.find((x) => x.id === id); if (!h) return; h.faff = h.faff === n ? 0 : n; touch(); renderHistList(); }
+
+// Per-meal extras (e.g. garlic bread): chips you can drop for a week without losing them from the saved recipe.
+function renderExtraChips(i) {
+  const box = $("xc-" + i); if (!box) return;
+  box.innerHTML = ingLines(state.meals[i].extras).map((g, gi) => `<button class="chip" onclick="removeExtra(${i},${gi})">${esc(g)} <span class="x">✕</span></button>`).join("");
+  const n = $("xcn-" + i); if (n) n.textContent = box.innerHTML ? "— tap ✕ to leave one out this week" : "— e.g. garlic bread";
+}
+function addExtra(i) {
+  const inp = $("xi-" + i); if (!inp) return; const v = inp.value.trim(); if (!v) return;
+  const m = state.meals[i], list = ingLines(m.extras);
+  if (list.some((g) => cleanItem(g) === cleanItem(v))) { inp.value = ""; return toast("Already added"); }
+  list.push(ingDisplay(v)); m.extras = list.join("\n"); inp.value = ""; touch();
+  renderExtraChips(i); const s = $("ms-" + i); if (s) s.textContent = mealSummary(m);
+}
+function removeExtra(i, gi) {
+  const m = state.meals[i], list = ingLines(m.extras); list.splice(gi, 1); m.extras = list.join("\n"); touch();
+  renderExtraChips(i); const s = $("ms-" + i); if (s) s.textContent = mealSummary(m); renderSugs(i);
 }
 function setReuse(i, on) {
   state.meals[i].reuse = !!on; touch();
@@ -529,7 +586,8 @@ function recipeCard(m, kind, i) {
   const ing = String(m.ingredients).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const where = [m.book && m.book.trim(), m.page && String(m.page).trim() ? "page " + String(m.page).trim() : ""].filter(Boolean).join(" · ");
   const used = kind === "used";
-  return `<div class="card rcp ${used ? "used" : ""}"><h3>${used ? "✓ " : ""}${esc(m.name.trim() || "Untitled meal")}${m.reuse && !used ? ' <span class="tag">♻ re-used</span>' : ""}</h3><div class="bk">${esc(where || "No recipe book noted")}</div>${ing.length ? `<ul>${ing.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : '<div class="hint">No ingredients listed.</div>'}
+  return `<div class="card rcp ${used ? "used" : ""}"><h3>${used ? "✓ " : ""}${esc(m.name.trim() || "Untitled meal")}${m.reuse && !used ? ' <span class="tag">♻ re-used</span>' : ""}</h3><div class="bk">${esc(where || "No recipe book noted")}</div><div class="faffrow"><span>Faff rating</span><span class="stars">${starsHtml(m.faff, `setFaffRecipe('${kind}',${i},`)}</span></div>${ing.length ? `<ul>${ing.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : '<div class="hint">No ingredients listed.</div>'}
+    ${ingLines(m.extras).length ? `<div class="bk" style="margin-top:8px"><b>Extras:</b> ${ingLines(m.extras).map(esc).join(", ")}</div>` : ""}
     <div class="row2" style="margin-top:10px"><button class="btn small ${used ? "ghost" : ""}" onclick="${used ? "unuseMeal" : "toggleUsed"}(${i})">${used ? "Undo – not used" : "Mark as used"}</button><button class="btn small danger" onclick="${used ? "removeUsed" : "removeRecipe"}(${i})">Remove</button></div></div>`;
 }
 function rRecipes() {
@@ -545,7 +603,7 @@ function rRecipes() {
 // Cooked it: strike it off here, clear its slot in the Meal planner, and back up. The shopping list is untouched.
 function toggleUsed(i) {
   const m = state.meals[i];
-  state.usedMeals.push({ name: m.name, book: m.book, page: m.page, ingredients: m.ingredients });
+  state.usedMeals.push(mealCopy(m));
   state.meals[i] = emptyMeal(); delete ui.auto[i]; delete ui.autoNote[i];
   touch(); backupSoon(); rRecipes();
 }
@@ -554,7 +612,7 @@ function unuseMeal(j) {
   let i = state.meals.findIndex((m) => !m.name.trim() && !String(m.ingredients || "").trim());
   if (i < 0 && state.meals.length >= MAX_SLOTS) return alert("The Meal planner is full — clear a slot first.");
   if (i < 0) { state.meals.push(emptyMeal()); i = state.meals.length - 1; }
-  state.meals[i] = state.usedMeals.splice(j, 1)[0]; touch(); backupSoon(); rRecipes();
+  state.meals[i] = { ...emptyMeal(), ...state.usedMeals.splice(j, 1)[0] }; touch(); backupSoon(); rRecipes();
 }
 function removeUsed(j) {
   if (!confirm(`Remove "${state.usedMeals[j].name.trim() || "this meal"}" from this week's list?`)) return;
@@ -700,7 +758,7 @@ function resetAll() {
 /* ---------------------------------------------------------------------
    PLANNER: recognise previous meals and fill in their ingredients
    --------------------------------------------------------------------- */
-const AUTO_NOTE = "Filled in from Previous meals — delete anything you don't need this week.";
+const AUTO_NOTE = "Filled in from Previous meals — remove any ingredients or extras you don't need this week.";
 
 // Safe to overwrite the ingredients box if it's empty, or still exactly what we filled in earlier.
 function canFillIngredients(i) {
@@ -720,7 +778,8 @@ function refreshMealFields(i) {
   if (s) s.textContent = mealSummary(m);
   if (c) c.classList.toggle("filled", !!m.name.trim());
   if (a) a.textContent = ui.autoNote[i] ? AUTO_NOTE : "";
-  renderSugs(i); renderIngChips(i);
+  renderSugs(i); renderIngChips(i); renderExtraChips(i);
+  const fs = $("fs-" + i); if (fs) fs.innerHTML = starsHtml(m.faff, `setFaffPlan(${i},`);
 }
 
 function fillFromHistory(i, h, { override = false } = {}) {
@@ -728,8 +787,10 @@ function fillFromHistory(i, h, { override = false } = {}) {
   if (override) { m.name = h.name; if (h.book) m.book = h.book; if (h.page) m.page = h.page; }
   else { if (!m.book.trim() && h.book) m.book = h.book; if (!String(m.page).trim() && h.page) m.page = h.page; }
   m.ingredients = h.ingredients.join("\n");
+  m.extras = (h.extras || []).join("\n");
+  if (h.faff && (override || !m.faff)) m.faff = h.faff;
   ui.auto[i] = { key: mealKey(h.name), text: m.ingredients };
-  ui.autoNote[i] = h.ingredients.length > 0;
+  ui.autoNote[i] = h.ingredients.length > 0 || (h.extras || []).length > 0;
   touch(); refreshMealFields(i);
 }
 
@@ -744,7 +805,7 @@ function onNameCommit(i) {
 
 function pickHistory(i, id) {
   const h = state.history.find((x) => x.id === id); if (!h) return;
-  if (!canFillIngredients(i) && !confirm("Replace the ingredients already in this meal with the saved ones?")) return;
+  if (!canFillIngredients(i) && !confirm("Replace the ingredients and extras already in this meal with the saved ones?")) return;
   fillFromHistory(i, h, { override: true });
 }
 
@@ -756,8 +817,8 @@ function renderSugs(i) {
   if (!q) list = top5(state);
   else list = state.history.filter((h) => mealKey(h.name).includes(q) && h !== exact).sort((a, b) => b.count - a.count).slice(0, 5);
   let html = "";
-  if (exact && exact.ingredients.length && m.ingredients !== exact.ingredients.join("\n"))
-    html += `<button class="sug" onclick="pickHistory(${i},'${exact.id}')">↻ Load saved ingredients</button>`;
+  if (exact && (exact.ingredients.length || (exact.extras || []).length) && (m.ingredients !== exact.ingredients.join("\n") || m.extras !== (exact.extras || []).join("\n")))
+    html += `<button class="sug" onclick="pickHistory(${i},'${exact.id}')">↻ Load saved ingredients &amp; extras</button>`;
   if (!q && list.length) html += `<span class="hint" style="width:100%;margin:0">From previous meals:</span>`;
   html += list.map((h) => `<button class="sug" onclick="pickHistory(${i},'${h.id}')">${esc(h.name)} <small>×${h.count}</small></button>`).join("");
   box.innerHTML = html;
@@ -772,7 +833,7 @@ function rHistory() {
   const h = state.history;
   $("v-history").innerHTML = bar("Previous meals") + (h.length
     ? `<p class="sub">Every meal you've planned, with all the ingredients you've used for it. It grows each time you populate the shopping list.</p>
-       <div class="card"><h3>🏆 Top 5 recipes</h3>${top5(state).map((x, i) => `<div class="toprow"><span class="rk">${i + 1}</span><span class="tn"><b>${esc(x.name)}</b><small>${esc(whereText(x))}</small></span><span class="cnt">×${x.count}</span></div>`).join("")}</div>
+       <div class="card"><h3>🏆 Top 5 recipes</h3>${top5(state).map((x, i) => `<div class="toprow"><span class="rk">${i + 1}</span><span class="tn"><b>${esc(x.name)}</b><small>${esc(whereText(x))}${x.faff ? " · Faff " + x.faff + "/5" : ""}</small></span><span class="cnt">×${x.count}</span></div>`).join("")}</div>
        <div class="secthead"><h2>All meals (${h.length})</h2></div>
        <input type="text" id="hist-filter" placeholder="Search meals or ingredients…" value="${esc(ui.histFilter)}" oninput="ui.histFilter=this.value;renderHistList()" autocomplete="off">
        <div id="hist-list" style="margin-top:12px"></div>`
@@ -797,12 +858,16 @@ function renderHistList() {
         <label class="l">Saved ingredients — tap one to remove it</label>
         <div class="chips">${h.ingredients.length ? h.ingredients.map((g, gi) => `<button class="chip" onclick="histDelIng('${h.id}',${gi})">${esc(g)} <span class="x">✕</span></button>`).join("") : '<span class="hint">None yet.</span>'}</div>
         <div class="row2" style="margin-top:10px"><input type="text" id="hi-${h.id}" placeholder="Add an ingredient…" autocomplete="off" onkeydown="if(event.key==='Enter')histAddIng('${h.id}')"><button class="btn small ghost" style="flex:0 0 auto" onclick="histAddIng('${h.id}')">Add</button></div>
+        <label class="l" style="margin-top:12px">Saved extras — tap one to remove it</label>
+        <div class="chips">${(h.extras || []).length ? h.extras.map((g, gi) => `<button class="chip" onclick="histDelExtra('${h.id}',${gi})">${esc(g)} <span class="x">✕</span></button>`).join("") : '<span class="hint">None yet — add extras like garlic bread in the Meal planner.</span>'}</div>
+        <label class="l" style="margin-top:12px">Faff rating</label><div class="stars">${starsHtml(h.faff, `setFaffHist('${h.id}',`)}</div>
         <div class="stack" style="margin-top:12px"><button class="btn" onclick="useMeal('${h.id}')">Add to this week's plan</button><button class="btn danger" onclick="histDelete('${h.id}')">Delete this meal</button></div>
       </div></div>`).join("") : '<p class="hint">No meals match.</p>';
 }
 
 function toggleHist(id) { ui.openHist.has(id) ? ui.openHist.delete(id) : ui.openHist.add(id); const el = $("hm-" + id); if (el) el.classList.toggle("open", ui.openHist.has(id)); }
 function histField(id, field, val) { const h = state.history.find((x) => x.id === id); if (!h) return; h[field] = val.trim(); touch(); renderHistList(); }
+function histDelExtra(id, gi) { const h = state.history.find((x) => x.id === id); if (!h) return; h.extras.splice(gi, 1); touch(); renderHistList(); }
 function histDelIng(id, gi) { const h = state.history.find((x) => x.id === id); if (!h) return; h.ingredients.splice(gi, 1); touch(); renderHistList(); }
 function histAddIng(id) {
   const h = state.history.find((x) => x.id === id), inp = $("hi-" + id); if (!h || !inp) return;
